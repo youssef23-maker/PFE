@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Exemple Stack AI avec input</title>
+</head>
+<body>
+  <h1>Appel API Stack AI avec input utilisateur</h1>
+  
+  <input type="text" id="userInput" placeholder="Entrez votre question" style="width: 300px;" />
+  <button id="sendBtn">Envoyer</button>
+  
+  <h2>Réponse :</h2>
+  <pre id="responseOutput" style="background:#f0f0f0; padding:10px; width: 400px; height: 150px; overflow:auto;"></pre>
+  
+  <script>
+    const API_URL = "https://api.stack-ai.com/inference/v0/run/94902246-5836-4879-86de-4a23886796ed/681160e52b3715540efeb684";
+    const API_KEY = "969a36b7-ddf6-4819-8716-f77b714f9739";
+
+    document.getElementById('sendBtn').addEventListener('click', async () => {
+      const inputText = document.getElementById('userInput').value.trim();
+      if (!inputText) {
+        alert("Veuillez entrer une question.");
+        return;
+      }
+
+      const payload = { "in-0": inputText }; // "in-0" correspond au nom de l'input dans votre flow Stack AI
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Erreur API : ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // Affichez la réponse dans la zone prévue
+        // Adaptez selon la structure de votre réponse Stack AI, ici on suppose un champ "out-0"
+        document.getElementById('responseOutput').textContent = JSON.stringify(data["out-0"] || data, null, 2);
+      } catch (error) {
+        document.getElementById('responseOutput').textContent = `Erreur : ${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html>
