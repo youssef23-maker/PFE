@@ -18,12 +18,11 @@ export interface Message {
 export interface ChatSession {
   id: string;
   title: string;
-  createdAt: string;
+  createdAt: number;
+  updatedAt: number;
+  archived?: boolean;
+  archivedAt?: number | null;
   messages: Message[];
-  updatedAt?: number; // Added to match the other definition
 }
-
-
-
 
 

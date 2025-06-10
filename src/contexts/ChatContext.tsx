@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { useAuth } from './AuthContext';
 import { Message, ChatSession } from '../types';
+import { ChatService } from '../services/ChatService';
 
 // Constantes pour l'API Stack AI
 const STACK_API_URL = import.meta.env.VITE_STACK_API_URL;
@@ -95,61 +96,40 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (currentUser) {
-      // Start a new session instead of loading from localStorage
-      startNewSession();
+      loadChatHistory();
+      // Supprimez cette ligne pour éviter la création automatique
+      // startNewSession();
     } else {
-      // For guest users, start a new session
-      startNewSession();
-    }
-  }, [currentUser]);
-
-  // Remove or comment out the localStorage effects
-  // useEffect(() => {
-  //   if (currentUser && chatHistory.length > 0) {
-  //     localStorage.setItem(`chatHistory_${currentUser.id}`, JSON.stringify(chatHistory));
-  //   }
-  // }, [chatHistory, currentUser]);
-
-  // useEffect(() => {
-  //   if (!currentUser && currentSession) {
-  //     localStorage.setItem('guestChatSession', JSON.stringify(currentSession));
-  //   }
-  // }, [currentSession, messages, currentUser]);
-
-  const deleteSession = (sessionId: string) => {
-    if (currentUser) {
-      const updatedHistory = chatHistory.filter(session => session.id !== sessionId);
-      setChatHistory(updatedHistory);
-      
-      if (currentSession?.id === sessionId) {
-        if (updatedHistory.length > 0) {
-          setCurrentSession(updatedHistory[0]);
-          setMessages(updatedHistory[0].messages);
-        } else {
-          startNewSession();
-        }
-      }
-    } else {
-      if (currentSession?.id === sessionId) {
+      // Pour les utilisateurs non connectés, créer une session unique
+      if (!currentSession) {
         startNewSession();
       }
     }
-  };
+  }, [currentUser]);
 
-  const startNewSession = () => {
-    const newSession: ChatSession = {
-      id: Date.now().toString(),
-      title: 'New Chat',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      messages: []
-    };
-    
-    setCurrentSession(newSession);
-    setMessages([]);
-    
+  const startNewSession = async () => {
     if (currentUser) {
-      setChatHistory(prev => [newSession, ...prev]);
+      try {
+        const newSession = await ChatService.createChatSession(currentUser.id);
+        setCurrentSession(newSession);
+        setMessages([]);
+        
+        // Mettre à jour l'historique
+        loadChatHistory();
+      } catch (error) {
+        console.error('Error creating new session:', error);
+      }
+    } else {
+      // Pour les utilisateurs invités, créer une session locale
+      const newSession: ChatSession = {
+        id: Date.now().toString(),
+        title: 'New Chat',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: []
+      };
+      setCurrentSession(newSession);
+      setMessages([]);
     }
   };
 
@@ -166,26 +146,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsTyping(true);
 
     if (currentSession) {
+      // Sauvegarder le message utilisateur dans Supabase
+      if (currentUser) {
+        try {
+          await ChatService.saveMessage(currentSession.id, {
+            sender: 'user',
+            content,
+            timestamp: Date.now()
+          });
+        } catch (error) {
+          console.error('Error saving user message:', error);
+        }
+      }
+      
+      // Mettre à jour la session locale
       const updatedSession = {
         ...currentSession,
         messages: updatedMessages
       };
       setCurrentSession(updatedSession);
-      
-      if (currentUser) {
-        setChatHistory(prev => 
-          prev.map(session => 
-            session.id === updatedSession.id ? updatedSession : session
-          )
-        );
-      }
     }
     
     try {
-      // Utiliser l'API Stack AI au lieu de generateBotResponse
-      console.log("Sending message to Stack AI:", content);
+      // Utiliser l'API Stack AI
       const botResponse = await getStackAIResponse(content);
-      console.log("Received response from Stack AI:", botResponse);
       
       const botMessage: Message = {
         id: Date.now().toString(),
@@ -197,30 +181,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const messagesWithResponse = [...updatedMessages, botMessage];
       setMessages(messagesWithResponse);
 
+      // Sauvegarder la réponse du bot dans Supabase
+      if (currentUser && currentSession) {
+        try {
+          await ChatService.saveMessage(currentSession.id, {
+            sender: 'bot',
+            content: botResponse,
+            timestamp: Date.now()
+          });
+        } catch (error) {
+          console.error('Error saving bot message:', error);
+        }
+      }
+
       if (currentSession) {
         const sessionWithResponse = {
           ...currentSession,
           messages: messagesWithResponse
         };
         setCurrentSession(sessionWithResponse);
-        
-        if (currentUser) {
-          setChatHistory(prev => 
-            prev.map(session => 
-              session.id === sessionWithResponse.id ? sessionWithResponse : session
-            )
-          );
-        }
       }
     } catch (error) {
       console.error('Error getting bot response:', error);
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        sender: 'bot',
-        content: "Je suis désolé, mais j'ai des difficultés à générer une réponse pour le moment. Veuillez réessayer plus tard.",
-        timestamp: Date.now()
-      };
-      setMessages([...updatedMessages, errorMessage]);
+      // Gérer l'erreur...
     } finally {
       setIsTyping(false);
     }
@@ -230,11 +213,56 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     startNewSession();
   };
 
-  const loadChatSession = (sessionId: string) => {
-    const session = chatHistory.find(s => s.id === sessionId);
-    if (session) {
-      setCurrentSession(session);
-      setMessages(session.messages);
+  // Fonction pour charger l'historique des conversations
+  const loadChatHistory = async () => {
+    if (currentUser) {
+      try {
+        const sessions = await ChatService.getUserChatSessions(currentUser.id);
+        setChatHistory(sessions);
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    }
+  };
+
+  // Charger une session spécifique
+  const loadChatSession = async (sessionId: string) => {
+    if (currentUser) {
+      try {
+        const session = await ChatService.getChatSession(sessionId);
+        if (session) {
+          setCurrentSession(session);
+          setMessages(session.messages);
+        }
+      } catch (error) {
+        console.error('Error loading chat session:', error);
+      }
+    } else {
+      // Pour les utilisateurs invités, utiliser l'historique local
+      const session = chatHistory.find(s => s.id === sessionId);
+      if (session) {
+        setCurrentSession(session);
+        setMessages(session.messages);
+      }
+    }
+  };
+
+  // Supprimer une session
+  const deleteSession = async (sessionId: string) => {
+    if (currentUser) {
+      try {
+        await ChatService.deleteChatSession(sessionId);
+        // Mettre à jour l'historique après suppression
+        loadChatHistory();
+        
+        if (currentSession?.id === sessionId) {
+          startNewSession();
+        }
+      } catch (error) {
+        console.error('Error deleting session:', error);
+      }
+    } else {
+      // Pour les utilisateurs invités...
     }
   };
 
@@ -255,6 +283,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     </ChatContext.Provider>
   );
 };
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

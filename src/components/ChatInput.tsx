@@ -78,3 +78,4 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isTyping }) => {
 
 export default ChatInput;
 
+

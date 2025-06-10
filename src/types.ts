@@ -1,16 +1,21 @@
 export interface Message {
   id: string;
-  content: string;
   sender: 'user' | 'bot';
-  timestamp: number; // Using number consistently
+  content: string;
+  timestamp: number;
 }
 
 export interface ChatSession {
   id: string;
   title: string;
-  messages: Message[];
   createdAt: number;
   updatedAt: number;
+  messages: Message[];
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
 
